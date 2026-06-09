@@ -132,3 +132,6 @@ dmypy.json
 
 # Test output
 junit.xml
+
+# uv lockfile (not used - project builds via hatchling/jlpm)
+uv.lock
