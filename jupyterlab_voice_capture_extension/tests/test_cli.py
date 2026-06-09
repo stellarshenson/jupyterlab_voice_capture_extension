@@ -8,7 +8,7 @@ def test_install_dry_run_uses_apt_never_conda(capsys, monkeypatch):
     # even when conda is present, install must never use it: conda-forge sox lacks the
     # pulseaudio driver, so the recorder always comes from the Debian sox + libsox-fmt-pulse
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/" + name)
-    rc = cli.main(["install", "--dry-run", "--sink-path", "/run/voice/voice.fifo"])
+    rc = cli.main(["install", "--dry-run", "--sink-path", "/run/pulseaudio.fifo"])
     out = capsys.readouterr().out
 
     assert rc == 0
@@ -16,9 +16,11 @@ def test_install_dry_run_uses_apt_never_conda(capsys, monkeypatch):
     assert "conda" not in out.lower()
     assert "apt-get update" in out
     assert "apt-get install" in out and "libsox-fmt-pulse" in out
-    assert "module-pipe-source" in out
-    assert "/run/voice/voice.fifo" in out
-    assert "set-default-source voicein" in out
+    assert "/run/pulseaudio.fifo" in out
+    # install must NOT start the daemon or load the source - it advises `start` instead
+    assert "module-pipe-source" not in out
+    assert "set-default-source" not in out
+    assert "start" in out
 
 
 def test_install_dry_run_lists_all_apt_packages(capsys, monkeypatch):
@@ -47,7 +49,7 @@ def test_validate_reports_missing_and_prints_config(capsys, monkeypatch):
 
     assert rc == 1  # something missing
     assert "[MISS]" in out
-    assert 'c.VoiceCapture.sink_path = "/run/voice/voice.fifo"' in out
+    assert 'c.VoiceCapture.sink_path = "/run/pulseaudio.fifo"' in out
     assert "AUDIODRIVER=pulseaudio" in out
 
 
@@ -90,7 +92,7 @@ def test_validate_json_is_machine_readable(capsys, monkeypatch):
     data = json.loads(out)  # must parse cleanly - no colour codes, no surrounding prose
     assert rc == 1
     assert data["ok"] is False
-    assert data["sink_path"] == "/run/voice/voice.fifo"
+    assert data["sink_path"] == "/run/pulseaudio.fifo"
     assert any(
         c["name"] == "sox pulseaudio driver" and c["ok"] is False for c in data["checks"]
     )

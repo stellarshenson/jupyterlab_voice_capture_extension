@@ -2,6 +2,19 @@
 
 <!-- <START NEW CHANGELOG ENTRY> -->
 
+## [1.0.6] - 2026-06-09
+
+### Added
+
+- Settings menu icon - the Voice Capture entry in Settings now shows the microphone icon (`jupyter.lab.setting-icon`)
+- `install` now writes the `c.VoiceCapture.sink_path` line into `~/.jupyter/jupyter_server_config.py` when it is absent
+
+### Changed
+
+- `install` no longer starts the PulseAudio daemon - it installs, provisions, and writes config, then advises `start -d`; daemon lifecycle is owned by `start`/`stop`
+- Default sink path is now a flat `/run/pulseaudio.fifo` everywhere (CLI default and the extension's `c.VoiceCapture.sink_path` default), replacing `/run/voice/voice.fifo` and `/tmp/voice.fifo`
+- Runtime-dir provisioning is guarded so the default `/run` parent is never chowned
+
 ## [1.0.4] - 2026-06-09
 
 ### Added

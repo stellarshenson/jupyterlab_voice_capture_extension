@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture
 def voice_sink_path(tmp_path):
-    return str(tmp_path / "voice.fifo")
+    return str(tmp_path / "pulseaudio.fifo")
 
 
 @pytest.fixture

@@ -18,7 +18,7 @@ class VoiceCapture(Configurable):
     """Configuration for the voice-capture server extension."""
 
     sink_path = Unicode(
-        "/tmp/voice.fifo",
+        "/run/pulseaudio.fifo",
         config=True,
         help="Path to the FIFO sink that receives raw PCM audio frames.",
     )

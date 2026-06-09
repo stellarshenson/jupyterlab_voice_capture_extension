@@ -22,7 +22,7 @@ import stat
 import subprocess
 import sys
 
-DEFAULT_SINK_PATH = "/run/voice/voice.fifo"
+DEFAULT_SINK_PATH = "/run/pulseaudio.fifo"
 SOURCE_NAME = "voicein"
 PULSE_RUNTIME_PATH = "/tmp/pulse-lab"
 PULSE_SOCKET = f"{PULSE_RUNTIME_PATH}/native"
@@ -223,17 +223,17 @@ def cmd_install(args) -> int:
     print("1) Install packages")
     _install_packages(dry)
 
-    print(f"\n2) Provision runtime dir {sink_dir} (owned by {user})")
-    _run(
-        ["install", "-d", "-m", "0755", "-o", user, "-g", user, sink_dir],
-        dry=dry,
-        sudo=True,
-    )
+    print(f"\n2) Provision runtime dir {sink_dir}")
+    if os.path.isdir(sink_dir):
+        print(f"  {sink_dir} already exists - leaving ownership unchanged")
+    else:
+        _run(
+            ["install", "-d", "-m", "0755", "-o", user, "-g", user, sink_dir],
+            dry=dry,
+            sudo=True,
+        )
 
-    print(f"\n3) Start PulseAudio and expose '{SOURCE_NAME}' -> {sink}")
-    _start_pulse_and_source(sink, dry)
-
-    print(f"\n4) Make the daemon discoverable in {PULSE_CLIENT_CONF}")
+    print(f"\n3) Make the daemon discoverable in {PULSE_CLIENT_CONF}")
     line = f"default-server = unix:{PULSE_SOCKET}"
     _run(
         [
@@ -246,8 +246,16 @@ def cmd_install(args) -> int:
         sudo=True,
     )
 
-    print("\nDone. Two manual steps remain (intentionally not automated):\n")
-    _print_manual_steps(sink)
+    cfg = _jupyter_server_config()
+    print(f"\n4) Point the extension at the sink in {cfg}")
+    _write_sink_config(cfg, sink, dry)
+
+    print("\nDone. install does not start the daemon. Next steps:\n")
+    print("  1) start the bridge (also re-run after every container restart):")
+    print("       jupyterlab_voice_capture_extension start -d")
+    print("  2) set the SoX driver in the shell that launches claude:")
+    print("       bash:  export AUDIODRIVER=pulseaudio")
+    print("       fish:  set -gx AUDIODRIVER pulseaudio")
     print(
         "\nThen verify with:\n"
         "  jupyterlab_voice_capture_extension validate"
@@ -378,12 +386,38 @@ def cmd_stop(args) -> int:
     return rc
 
 
-def _print_manual_steps(sink: str) -> None:
-    print("  a) point the extension at the sink (jupyter_server_config.py), then restart:")
-    print(f'       c.VoiceCapture.sink_path = "{sink}"')
-    print("  b) set the SoX driver in the shell that launches claude:")
-    print("       bash:  export AUDIODRIVER=pulseaudio")
-    print("       fish:  set -gx AUDIODRIVER pulseaudio")
+def _jupyter_server_config() -> str:
+    return os.path.join(os.path.expanduser("~"), ".jupyter", "jupyter_server_config.py")
+
+
+def _config_has_sink_path(path: str) -> bool:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for raw in handle:
+                stripped = raw.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if "c.VoiceCapture.sink_path" in stripped:
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def _write_sink_config(cfg: str, sink: str, dry: bool) -> None:
+    """Write the `c.VoiceCapture.sink_path` line into the Jupyter server config if absent."""
+    setting = f'c.VoiceCapture.sink_path = "{sink}"'
+    if not dry and _config_has_sink_path(cfg):
+        print(f"  c.VoiceCapture.sink_path already set in {cfg} - leaving it")
+        return
+    if dry:
+        print(f"  $ printf '\\n{setting}\\n' >> {cfg}")
+        return
+    os.makedirs(os.path.dirname(cfg), exist_ok=True)
+    with open(cfg, "a", encoding="utf-8") as handle:
+        handle.write(f"\n{setting}\n")
+    print(f"  wrote {setting}")
+    print("  restart the Jupyter server for it to take effect")
 
 
 # ------------------------------------------------------------------------------ main
