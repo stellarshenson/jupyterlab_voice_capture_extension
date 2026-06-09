@@ -15,10 +15,12 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import stat
 import subprocess
+import sys
 
 DEFAULT_SINK_PATH = "/run/voice/voice.fifo"
 SOURCE_NAME = "voicein"
@@ -29,11 +31,36 @@ RATE = 16000
 CHANNELS = 1
 SAMPLE_FORMAT = "s16le"
 APT_PACKAGES = ["pulseaudio", "pulseaudio-utils", "sox", "libsox-fmt-pulse"]
-CONDA_PACKAGES = ["pulseaudio", "sox"]
 
-OK = "[ OK ]"
-MISS = "[MISS]"
-WARN = "[WARN]"
+# ------------------------------------------------------------------------------ colour
+
+# conservative palette: status only - success / failure / warning
+_ANSI = {"green": "32", "red": "31", "yellow": "33"}
+# colour only when the terminal is capable: a real TTY, not a dumb terminal, and NO_COLOR
+# unset (https://no-color.org); machine consumers should use --json, which never colours
+_COLOR = (
+    sys.stdout.isatty()
+    and os.environ.get("TERM") != "dumb"
+    and os.environ.get("NO_COLOR") is None
+)
+
+
+def _color(enabled: bool) -> None:
+    """Override colour output (used to silence colour in --json mode)."""
+    global _COLOR
+    _COLOR = enabled
+
+
+def _c(text: str, name: str) -> str:
+    return f"\033[{_ANSI[name]}m{text}\033[0m" if _COLOR else text
+
+
+def _ok() -> str:
+    return _c("[ OK ]", "green")
+
+
+def _miss() -> str:
+    return _c("[MISS]", "red")
 
 
 def _current_user() -> str:
@@ -157,21 +184,30 @@ def _stop_daemon() -> int:
 
 
 def _install_packages(dry: bool) -> None:
-    """Install the audio stack: prefer conda (no root), fall back to sudo apt.
+    """Install the audio stack via apt (``apt-get update`` + ``install``), using sudo when
+    not already root.
 
-    When apt needs root, sudo prompts the operator for a password interactively - this CLI
-    does not capture stdio, so the prompt passes straight through to the user's terminal.
+    conda is intentionally not used: the conda-forge ``sox`` build ships without the
+    pulseaudio I/O driver, so a sox that can record from pulse must come from the Debian
+    ``sox`` + ``libsox-fmt-pulse`` build. When apt needs root, sudo prompts the operator
+    for a password interactively; this CLI does not capture stdio, so the prompt passes
+    straight through to the user's terminal.
     """
-    if shutil.which("conda"):
-        print("  conda found - installing from conda-forge (no root needed)")
-        rc = _run(["conda", "install", "-y", "-c", "conda-forge", *CONDA_PACKAGES], dry=dry)
-        if rc == 0:
-            return
-        print("  conda install failed - falling back to apt")
-    else:
-        print("  conda not found - using apt (sudo may prompt for a password)")
-    _run(["apt-get", "update"], dry=dry, sudo=True)
-    _run(["apt-get", "install", "-y", *APT_PACKAGES], dry=dry, sudo=True)
+    if not dry and shutil.which("apt-get") is None:
+        print("  apt-get not found - install these with your platform's package manager:")
+        print(f"    {' '.join(APT_PACKAGES)}")
+        print("    (sox must include the pulseaudio driver; Debian: libsox-fmt-pulse)")
+        return
+
+    need_sudo = os.geteuid() != 0
+    if need_sudo and not dry:
+        print("  apt needs root - sudo will prompt for your password")
+    _run(["apt-get", "update"], dry=dry, sudo=need_sudo)
+    rc = _run(["apt-get", "install", "-y", *APT_PACKAGES], dry=dry, sudo=need_sudo)
+    if not dry and rc != 0:
+        print("  apt install failed - install these another way:")
+        print(f"    {' '.join(APT_PACKAGES)}")
+        print("    (sox must include the pulseaudio driver; Debian: libsox-fmt-pulse)")
 
 
 def cmd_install(args) -> int:
@@ -182,7 +218,7 @@ def cmd_install(args) -> int:
 
     print("Provisioning voice-capture plumbing (operator tool; the extension never does this).")
     if dry:
-        print("DRY RUN - nothing will be executed.\n")
+        print(_c("DRY RUN - nothing will be executed.", "yellow") + "\n")
 
     print("1) Install packages")
     _install_packages(dry)
@@ -258,28 +294,49 @@ def cmd_validate(args) -> int:
          "export AUDIODRIVER=pulseaudio  (must be set in the claude process)"),
     ]
 
+    missing = [(label, fix) for label, ok, fix in checks if not ok]
+    ok_all = not missing
+    sink_line = f'c.VoiceCapture.sink_path = "{sink}"'
+
+    if args.json:
+        _color(False)
+        payload = {
+            "ok": ok_all,
+            "sink_path": sink,
+            "checks": [
+                {"name": label, "ok": ok, "fix": (None if ok else fix)}
+                for label, ok, fix in checks
+            ],
+            "missing": [{"name": label, "fix": fix} for label, fix in missing],
+            "config": {
+                "sink_path_line": sink_line,
+                "audiodriver": "AUDIODRIVER=pulseaudio",
+            },
+        }
+        print(json.dumps(payload, indent=2))
+        return 0 if ok_all else 1
+
     print("Voice-capture component check\n")
-    missing = []
-    for label, ok, fix in checks:
-        print(f"  {OK if ok else MISS}  {label}")
-        if not ok:
-            missing.append((label, fix))
+    for label, ok, _fix in checks:
+        print(f"  {_ok() if ok else _miss()}  {label}")
 
     if missing:
-        print("\nHow to configure what is missing:")
+        print("\n" + _c("How to configure what is missing:", "yellow"))
         for label, fix in missing:
             print(f"  - {label}:")
             print(f"      {fix}")
 
     print("\nExtension sink path (set in jupyter_server_config.py, then restart the server):")
-    print(f'  c.VoiceCapture.sink_path = "{sink}"')
+    print(f"  {sink_line}")
 
     print("\nMake PulseAudio the SoX driver in the shell that launches claude:")
     print("  bash:  export AUDIODRIVER=pulseaudio")
     print("  fish:  set -gx AUDIODRIVER pulseaudio")
 
-    ok_all = not missing
-    print(f"\n{'All components in place.' if ok_all else 'Some components are missing (see above).'}")
+    if ok_all:
+        print("\n" + _c("All components in place.", "green"))
+    else:
+        print("\n" + _c("Some components are missing (see above).", "yellow"))
     return 0 if ok_all else 1
 
 
@@ -356,6 +413,9 @@ def main(argv=None) -> int:
     )
     p_validate.add_argument(
         "--sink-path", default=DEFAULT_SINK_PATH, help="FIFO path (default: %(default)s)"
+    )
+    p_validate.add_argument(
+        "--json", action="store_true", help="emit the component check as JSON (no colour)"
     )
     p_validate.set_defaults(func=cmd_validate)
 
