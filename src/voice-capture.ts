@@ -17,6 +17,9 @@ export type VoiceCaptureState = 'idle' | 'connecting' | 'streaming' | 'error';
 
 const BASE_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 10000;
+// How long the websocket may stay unconnected before the control shows Error. Retries
+// continue in the background, so it still recovers to Connected if the bridge comes up.
+const CONNECT_TIMEOUT_MS = 10000;
 
 /**
  * Owns the browser capture pipeline and its lifecycle: getUserMedia, the 16 kHz
@@ -88,6 +91,7 @@ export class VoiceCapture {
   disable(): void {
     this._enabled = false;
     this._clearReconnect();
+    this._clearConnectDeadline();
     this._closeSocket();
     this._teardownAudio();
     this._setState('idle', '');
@@ -154,7 +158,11 @@ export class VoiceCapture {
   // -- websocket --------------------------------------------------------------------
 
   private _connect(): void {
-    this._setState('connecting', '');
+    // Stay on connecting unless the 10s deadline has already escalated to error.
+    if (this._state !== 'error') {
+      this._setState('connecting', '');
+    }
+    this._armConnectDeadline();
     let ws: WebSocket;
     try {
       ws = new WebSocket(voiceCaptureWsUrl(this._serverSettings));
@@ -166,6 +174,7 @@ export class VoiceCapture {
     this._ws = ws;
     ws.onopen = () => {
       this._backoff = BASE_BACKOFF_MS;
+      this._clearConnectDeadline();
       this._setState('streaming', '');
     };
     ws.onclose = () => {
@@ -173,11 +182,33 @@ export class VoiceCapture {
       if (!this._enabled) {
         return;
       }
-      // E4 / D1: unreachable or dropped while enabled -> back to connecting, retry with
+      // E4 / D1: unreachable or dropped while enabled -> keep connecting and retry with
       // backoff. Auto-recovers to streaming once the server bridge is reachable.
-      this._setState('connecting', '');
+      if (this._state !== 'error') {
+        this._setState('connecting', '');
+      }
       this._scheduleReconnect();
     };
+  }
+
+  private _armConnectDeadline(): void {
+    if (this._connectTimeout !== null) {
+      return; // one deadline per outage; measures total time, not per-attempt
+    }
+    this._connectTimeout = window.setTimeout(() => {
+      this._connectTimeout = null;
+      // Still not connected after the window -> show Error, but keep retrying.
+      if (this._enabled && this._state !== 'streaming') {
+        this._setError('Voice-capture endpoint unreachable.');
+      }
+    }, CONNECT_TIMEOUT_MS);
+  }
+
+  private _clearConnectDeadline(): void {
+    if (this._connectTimeout !== null) {
+      window.clearTimeout(this._connectTimeout);
+      this._connectTimeout = null;
+    }
   }
 
   private _closeSocket(): void {
@@ -256,5 +287,6 @@ export class VoiceCapture {
   private _ws: WebSocket | null = null;
 
   private _reconnectTimer: number | null = null;
+  private _connectTimeout: number | null = null;
   private _backoff = BASE_BACKOFF_MS;
 }

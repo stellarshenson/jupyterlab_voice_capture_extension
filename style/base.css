@@ -49,6 +49,12 @@
   animation: vc-fade 1.2s ease-in-out infinite;
 }
 
+/* animated trailing dots after the "Connecting" label */
+.jp-VoiceCapture-status.jp-mod-connecting .jp-VoiceCapture-label::after {
+  content: '';
+  animation: vc-dots 1.2s steps(1, end) infinite;
+}
+
 .jp-VoiceCapture-status.jp-mod-streaming .jp-VoiceCapture-icon {
   animation: vc-pulse 1.4s ease-in-out infinite;
 }
@@ -94,5 +100,25 @@
 
   50% {
     opacity: 0.4;
+  }
+}
+
+/* connecting: animated trailing dots */
+@keyframes vc-dots {
+  0% {
+    content: '';
+  }
+
+  25% {
+    content: '.';
+  }
+
+  50% {
+    content: '..';
+  }
+
+  75%,
+  100% {
+    content: '...';
   }
 }
