@@ -7,12 +7,13 @@ import { voiceCaptureWsUrl } from './request';
 import { WORKLET_PROCESSOR_NAME, workletModuleUrl } from './worklet';
 
 /**
- * The control reflects exactly one of these at all times (A4). `idle` = not capturing,
- * `streaming` = capturing and frames flowing to the server, `error` = capture is on but a
- * problem (permission, missing device, unreachable endpoint, dropped connection) prevents
- * streaming. `error` carries a human-readable message.
+ * The control reflects exactly one of these at all times (A4). `idle` = not capturing
+ * (Off), `connecting` = capture on but the websocket is not open yet - initial connect or
+ * auto-reconnect (Connecting), `streaming` = capturing and frames flowing (Connected),
+ * `error` = a blocking failure (denied permission, missing device, insecure context) that
+ * turned capture off. `error` carries a human-readable message.
  */
-export type VoiceCaptureState = 'idle' | 'streaming' | 'error';
+export type VoiceCaptureState = 'idle' | 'connecting' | 'streaming' | 'error';
 
 const BASE_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 10000;
@@ -65,6 +66,7 @@ export class VoiceCapture {
       return;
     }
     this._enabled = true;
+    this._setState('connecting', ''); // shown while the permission prompt / connect runs
     try {
       this._stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
@@ -152,11 +154,11 @@ export class VoiceCapture {
   // -- websocket --------------------------------------------------------------------
 
   private _connect(): void {
+    this._setState('connecting', '');
     let ws: WebSocket;
     try {
       ws = new WebSocket(voiceCaptureWsUrl(this._serverSettings));
     } catch (err) {
-      this._setError(`Cannot reach the voice-capture endpoint: ${String(err)}`);
       this._scheduleReconnect();
       return;
     }
@@ -171,8 +173,9 @@ export class VoiceCapture {
       if (!this._enabled) {
         return;
       }
-      // E4 / D1: unexpected close while enabled -> surface error and retry with backoff.
-      this._setError('Voice-capture endpoint unreachable - reconnecting...');
+      // E4 / D1: unreachable or dropped while enabled -> back to connecting, retry with
+      // backoff. Auto-recovers to streaming once the server bridge is reachable.
+      this._setState('connecting', '');
       this._scheduleReconnect();
     };
   }

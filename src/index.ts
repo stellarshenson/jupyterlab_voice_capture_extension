@@ -48,7 +48,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
         'jupyterlab_voice_capture_extension:status',
         {
           item: new VoiceStatus(model),
-          align: 'right',
+          align: 'left',
           rank: 100
         }
       );

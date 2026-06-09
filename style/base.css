@@ -7,9 +7,15 @@
 .jp-VoiceCapture-status {
   display: flex;
   align-items: center;
+  gap: 4px;
   padding: 0 6px;
   cursor: pointer;
   color: var(--jp-ui-font-color2);
+}
+
+.jp-VoiceCapture-icon {
+  display: flex;
+  align-items: center;
 }
 
 .jp-VoiceCapture-status svg {
@@ -17,23 +23,76 @@
   height: 16px;
 }
 
-/* idle: neutral; streaming: faint pulsating red; error: warning colour */
+.jp-VoiceCapture-label {
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1;
+}
+
+/*
+  State colours apply to the whole control (icon + label); animations are scoped to the
+  icon only so the label text stays steady and readable.
+  disconnected: neutral | connecting: blue fade | connected: red glow pulse | error: orange blink
+*/
+.jp-VoiceCapture-status.jp-mod-connecting {
+  color: var(--jp-brand-color1);
+}
+
 .jp-VoiceCapture-status.jp-mod-streaming {
-  color: var(--jp-error-color1);
-  animation: vc-pulse 1.6s ease-in-out infinite;
+  color: var(--jp-success-color1);
 }
 
 .jp-VoiceCapture-status.jp-mod-error {
   color: var(--jp-warn-color1);
 }
 
+.jp-VoiceCapture-status.jp-mod-connecting .jp-VoiceCapture-icon {
+  animation: vc-fade 1.2s ease-in-out infinite;
+}
+
+.jp-VoiceCapture-status.jp-mod-streaming .jp-VoiceCapture-icon {
+  animation: vc-pulse 1.4s ease-in-out infinite;
+}
+
+.jp-VoiceCapture-status.jp-mod-error .jp-VoiceCapture-icon {
+  animation: vc-blink 1s steps(1, end) infinite;
+}
+
+/* connected: intense green glow pulse */
 @keyframes vc-pulse {
+  0%,
+  100% {
+    opacity: 0.85;
+    filter: drop-shadow(0 0 2px var(--jp-success-color1));
+  }
+
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 9px var(--jp-success-color1))
+      drop-shadow(0 0 4px var(--jp-success-color1));
+  }
+}
+
+/* error: hard on/off orange blink */
+@keyframes vc-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* connecting: gentle fade */
+@keyframes vc-fade {
   0%,
   100% {
     opacity: 1;
   }
 
   50% {
-    opacity: 0.35;
+    opacity: 0.4;
   }
 }

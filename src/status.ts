@@ -14,23 +14,42 @@ export const micIcon = new LabIcon({
   svgstr: MIC_SVG
 });
 
+const LABELS: Record<VoiceCaptureState, string> = {
+  idle: 'Disconnected',
+  connecting: 'Connecting',
+  streaming: 'Connected',
+  error: 'Error'
+};
+
 const TITLES: Record<VoiceCaptureState, string> = {
   idle: 'Voice capture off - click to start',
+  connecting: 'Voice capture connecting...',
   streaming: 'Voice capture on - streaming to server',
   error: 'Voice capture error'
 };
 
 /**
- * Status-bar control: a microphone icon that toggles capture and reflects exactly one of
- * idle / streaming / error (A4). The streaming state pulses faint red (see base.css).
+ * Status-bar control: a microphone icon plus a status label, reflecting exactly one of
+ * idle / connecting / streaming / error (A4). The icon animates per state - the streaming
+ * state pulses faint red with a glow, the error state blinks orange (see base.css).
  */
 export class VoiceStatus extends Widget {
   constructor(model: VoiceCapture) {
     super();
     this._model = model;
     this.addClass('jp-VoiceCapture-status');
-    micIcon.element({ container: this.node });
+
+    const icon = document.createElement('span');
+    icon.className = 'jp-VoiceCapture-icon';
+    micIcon.element({ container: icon });
+
+    this._label = document.createElement('span');
+    this._label.className = 'jp-VoiceCapture-label';
+
+    this.node.appendChild(icon);
+    this.node.appendChild(this._label);
     this.node.addEventListener('click', this._onClick);
+
     model.stateChanged.connect(this._refresh, this);
     this._refresh();
   }
@@ -48,13 +67,16 @@ export class VoiceStatus extends Widget {
   private _refresh(): void {
     const state = this._model.state;
     this.removeClass('jp-mod-idle');
+    this.removeClass('jp-mod-connecting');
     this.removeClass('jp-mod-streaming');
     this.removeClass('jp-mod-error');
     this.addClass(`jp-mod-${state}`);
     this.node.dataset.vcState = state;
+    this._label.textContent = LABELS[state];
     this.node.title =
       state === 'error' ? this._model.message || TITLES.error : TITLES[state];
   }
 
+  private _label: HTMLSpanElement;
   private _model: VoiceCapture;
 }
