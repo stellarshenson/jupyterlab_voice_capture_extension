@@ -6,3 +6,4 @@ node_modules
 jupyterlab_voice_capture_extension
 eslint.config.mjs
 .venv
+.claude

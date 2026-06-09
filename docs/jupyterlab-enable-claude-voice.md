@@ -39,14 +39,14 @@ Two halves:
 
 ## The wire contract (fixed by the extension)
 
-| Property | Value |
-|---|---|
-| Sink | FIFO at `/run/voice/voice.fifo` (set via `c.VoiceCapture.sink_path`; extension default is `/tmp/voice.fifo`) |
-| Sample format | signed 16-bit little-endian PCM |
-| Sample rate | 16000 Hz |
-| Channels | 1 (mono) |
-| Frame | 20 ms = 640 bytes, binary websocket messages |
-| WS endpoint | `…/jupyterlab-voice-capture-extension/stream` (inherits Jupyter token auth) |
+| Property      | Value                                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------ |
+| Sink          | FIFO at `/run/voice/voice.fifo` (set via `c.VoiceCapture.sink_path`; extension default is `/tmp/voice.fifo`) |
+| Sample format | signed 16-bit little-endian PCM                                                                              |
+| Sample rate   | 16000 Hz                                                                                                     |
+| Channels      | 1 (mono)                                                                                                     |
+| Frame         | 20 ms = 640 bytes, binary websocket messages                                                                 |
+| WS endpoint   | `…/jupyterlab-voice-capture-extension/stream` (inherits Jupyter token auth)                                  |
 
 The extension is the FIFO **writer**; the plumbing is the **reader**. The writer opens `O_WRONLY|O_NONBLOCK` and polls (ENXIO until a reader attaches), so PulseAudio opening the read end is what unblocks it.
 
@@ -155,13 +155,14 @@ env -u PULSE_RUNTIME_PATH -u PULSE_SERVER -u XDG_RUNTIME_DIR \
 
 ### 5. The critical env var: `AUDIODRIVER` for the claude process
 
-`rec` (SoX in record mode) has no compiled-in default device in this build; without a driver hint it fails with *"Sorry, there is no default audio device configured"* and exits 1. Claude's probe runs `rec --version` and treats a non-zero exit as "no working recorder". The fix is to give SoX its driver via env in the shell that launches claude:
+`rec` (SoX in record mode) has no compiled-in default device in this build; without a driver hint it fails with _"Sorry, there is no default audio device configured"_ and exits 1. Claude's probe runs `rec --version` and treats a non-zero exit as "no working recorder". The fix is to give SoX its driver via env in the shell that launches claude:
 
 ```bash
 # bash
 export AUDIODRIVER=pulseaudio
 claude --dangerously-skip-permissions -c
 ```
+
 ```fish
 # fish
 set -gx AUDIODRIVER pulseaudio
@@ -217,15 +218,15 @@ The FIFO is shared: whichever side starts first creates it (extension at mode 06
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `/voice`: "could not find a working audio recorder" | `rec --version` exits 1 (no default driver) | export `AUDIODRIVER=pulseaudio` in the claude shell (step 5) |
-| `rec FAIL sox: Sorry, there is no default audio device configured` | same as above, seen directly | same |
-| Extension log: `cannot prepare sink /run/voice/voice.fifo: … No such file or directory` | `/run/voice` directory missing (e.g. after a restart) | recreate it (step 1); add to the startup hook |
-| Capture is pure silence (Max ~0.0004) | browser mic toggle is off, or not streaming | toggle mic on; confirm a `101 GET …/stream` in the Jupyter log |
-| Extension log loops `cannot open sink /run/voice/voice.fifo: No such file or directory` | FIFO got unlinked/recreated by churning pulse | stop churning; it self-recovers once a stable reader is attached |
-| `pactl` returns no sources after daemon start | inline `--load=module-pipe-source …` was dropped by arg parsing | load it with `pactl load-module …` (step 3) |
-| Claude reaches a different/absent pulse | a `PULSE_SERVER` in the claude env overrides `client.conf` | unset it, or point it at `unix:/tmp/pulse-lab/native` |
+| Symptom                                                                                 | Cause                                                           | Fix                                                              |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `/voice`: "could not find a working audio recorder"                                     | `rec --version` exits 1 (no default driver)                     | export `AUDIODRIVER=pulseaudio` in the claude shell (step 5)     |
+| `rec FAIL sox: Sorry, there is no default audio device configured`                      | same as above, seen directly                                    | same                                                             |
+| Extension log: `cannot prepare sink /run/voice/voice.fifo: … No such file or directory` | `/run/voice` directory missing (e.g. after a restart)           | recreate it (step 1); add to the startup hook                    |
+| Capture is pure silence (Max ~0.0004)                                                   | browser mic toggle is off, or not streaming                     | toggle mic on; confirm a `101 GET …/stream` in the Jupyter log   |
+| Extension log loops `cannot open sink /run/voice/voice.fifo: No such file or directory` | FIFO got unlinked/recreated by churning pulse                   | stop churning; it self-recovers once a stable reader is attached |
+| `pactl` returns no sources after daemon start                                           | inline `--load=module-pipe-source …` was dropped by arg parsing | load it with `pactl load-module …` (step 3)                      |
+| Claude reaches a different/absent pulse                                                 | a `PULSE_SERVER` in the claude env overrides `client.conf`      | unset it, or point it at `unix:/tmp/pulse-lab/native`            |
 
 Notes confirmed by tracing the live probe: Claude's `rec` reaches pulse via `/etc/pulse/client.conf` (not via any `/mnt/wslg/PulseServer` path - a WSLg symlink is **not** required), and the only blocker was the missing `AUDIODRIVER`.
 
@@ -237,4 +238,7 @@ Notes confirmed by tracing the live probe: Claude's `rec` reaches pulse via `/et
 - The pulse default source must be `voicein`; SoX with `AUDIODRIVER=pulseaudio` records the default source
 - The sink path is a configured rendezvous (`c.VoiceCapture.sink_path` = `module-pipe-source file=`), not an OS-standard path; `/run/voice/voice.fifo` is chosen because `/run` is runtime state that is not age-reaped like `/tmp`
 - Everything downstream of the FIFO is container plumbing; the extension's responsibility ends at delivering correct PCM to the FIFO
+
+```
+
 ```
