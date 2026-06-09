@@ -16,8 +16,8 @@ two halves.
 Conventions: "PCM" means signed 16-bit little-endian, 16 kHz, mono unless stated. "frame"
 = one binary websocket message of PCM. The websocket path is served by the extension's own
 server endpoint under the Jupyter base URL and inherits Jupyter token auth. "sink" = the
-FIFO path the handler writes to (`/tmp/voice.fifo` by default). All measurements assume the
-page is served over a secure context (https or `localhost`).
+FIFO path the handler writes to (`/run/voice/pulseaudio.fifo` by default). All measurements
+assume the page is served over a secure context (https or `localhost`).
 
 ## A. Mic capture (frontend)
 
@@ -51,11 +51,15 @@ page is served over a secure context (https or `localhost`).
   externally exposed port is opened
 - **C2 - PCM → sink**: every binary frame received is written verbatim to the sink FIFO in
   order; bytes written equal bytes received over the connection
-- **C3 - consumer-absent tolerance**: if nothing is reading the FIFO yet (PulseAudio not
-  attached), the handler does not crash the server and does not block indefinitely - it
-  drops or buffers within a bounded window and logs, so a later reader gets live audio
-- **C4 - configurable sink, safe default**: the sink path defaults to `/tmp/voice.fifo`
-  and is overridable via server config; the handler creates the FIFO if absent
+- **C3 - consumer-absent tolerance**: if the FIFO is not yet created or nothing is reading
+  it yet (PulseAudio not attached), the handler does not crash the server and does not block
+  indefinitely - it drops or buffers within a bounded window and logs, so a later reader
+  gets live audio
+- **C4 - configurable sink, safe default**: the sink path defaults to
+  `/run/voice/pulseaudio.fifo` and is overridable via server config; the PulseAudio reader
+  (`module-pipe-source`) owns FIFO creation because it refuses to attach to a pre-existing
+  FIFO, so the handler never creates the FIFO - it attaches as writer, waits for the reader
+  to create it, and refuses only a path that exists as a non-FIFO (C5)
 - **C5 - no disk capture**: audio is never written to a regular file or persisted; only the
   FIFO (a pipe) is touched
 

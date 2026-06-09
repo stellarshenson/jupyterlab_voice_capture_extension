@@ -16,7 +16,7 @@ The container has no capture device; the browser does. This extension bridges th
 
 - **Capture** - a microphone toggle in the status bar calls `getUserMedia`; an AudioWorklet resamples to 16 kHz mono and encodes signed 16-bit little-endian PCM off the UI thread
 - **Transport** - 20 ms PCM frames (640 bytes) are sent as binary websocket messages to `…/jupyterlab-voice-capture-extension/stream`, which lives under the Jupyter base URL and inherits Jupyter token auth - no new port is opened
-- **Sink** - the server handler writes each frame, in order, to a FIFO (default `/run/pulseaudio.fifo`); it creates the pipe if absent and tolerates a not-yet-attached reader without blocking the server
+- **Sink** - the server handler writes each frame, in order, to a FIFO (default `/run/voice/pulseaudio.fifo`); the PulseAudio reader creates the pipe (`module-pipe-source` refuses a pre-existing one), so the handler attaches as writer, waits for the pipe to appear, and tolerates a not-yet-attached reader without blocking the server
 
 Chain: browser mic → AudioWorklet (16 kHz mono s16le) → websocket → server handler → FIFO → (PulseAudio + SoX, out of scope) → terminal app.
 
@@ -40,10 +40,10 @@ pip install jupyterlab-voice-capture-extension
 - **System** (only for the full voice chain into a terminal app): PulseAudio + SoX. Provision and verify them with the bundled CLI:
 
 ```bash
-jupyterlab_voice_capture_extension install    # apt packages + client.conf + Jupyter config line (does NOT start the daemon)
-jupyterlab_voice_capture_extension start -d   # start the PulseAudio daemon + pipe-source (run after install and each restart)
-jupyterlab_voice_capture_extension validate   # check every component, print what to fix (--json for machine output)
-jupyterlab_voice_capture_extension stop       # kill the PulseAudio daemon
+jupyterlab_voice_capture install    # apt packages + /run/voice dir + client.conf + Jupyter config line (does NOT start the daemon)
+jupyterlab_voice_capture start -d   # start the PulseAudio daemon + pipe-source (run after install and each restart)
+jupyterlab_voice_capture validate   # check every component, print what to fix (--json for machine output)
+jupyterlab_voice_capture stop       # kill the PulseAudio daemon
 ```
 
 See [docs/jupyterlab-enable-claude-voice.md](docs/jupyterlab-enable-claude-voice.md) for the full setup and troubleshooting.
@@ -57,10 +57,10 @@ See [docs/jupyterlab-enable-claude-voice.md](docs/jupyterlab-enable-claude-voice
 
 ## Configuration
 
-The sink FIFO path defaults to `/run/pulseaudio.fifo` and is overridable via Jupyter server config:
+The sink FIFO path defaults to `/run/voice/pulseaudio.fifo` and is overridable via Jupyter server config:
 
 ```python
-c.VoiceCapture.sink_path = "/run/pulseaudio.fifo"
+c.VoiceCapture.sink_path = "/run/voice/pulseaudio.fifo"
 ```
 
 Settings → **Voice Capture** has one option, **Auto-connect on startup** (`autoConnect`, default off): when enabled, capture starts automatically as JupyterLab loads instead of waiting for a click.

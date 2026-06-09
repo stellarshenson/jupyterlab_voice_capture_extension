@@ -29,7 +29,7 @@ dependencies = [
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
 [project.scripts]
-jupyterlab_voice_capture_extension = "jupyterlab_voice_capture_extension.cli:main"
+jupyterlab_voice_capture = "jupyterlab_voice_capture_extension.cli:main"
 
 [project.optional-dependencies]
 dev = [

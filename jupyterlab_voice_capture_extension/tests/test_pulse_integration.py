@@ -4,7 +4,7 @@ These exercise the real recorder Claude Code's /voice uses - `rec` (SoX) with
 `AUDIODRIVER=pulseaudio` - against a live PulseAudio daemon whose `module-pipe-source`
 reads the FIFO the extension writes. They are skipped whenever the audio stack is not
 present (e.g. CI), so they never break the unit-test gate; run them on a box where
-`jupyterlab_voice_capture_extension install` has set up the bridge.
+`jupyterlab_voice_capture install` has set up the bridge.
 """
 
 import os

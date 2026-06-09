@@ -2,6 +2,19 @@
 
 <!-- <START NEW CHANGELOG ENTRY> -->
 
+## [1.0.7] - 2026-06-09
+
+### Changed
+
+- Default sink path moved to a lab-owned subfolder `/run/voice/pulseaudio.fifo` (was flat `/run/pulseaudio.fifo`); `install` provisions that dir owned by the Jupyter-server user
+- FIFO creation flipped to the reader: `module-pipe-source` creates the FIFO (it refuses a pre-existing one), and the server `FifoSink` now only attaches as writer and waits - it never creates the FIFO
+- Operator CLI console script renamed `jupyterlab_voice_capture_extension` → `jupyterlab_voice_capture`
+- `validate` marks the `voicein` source connected only when its FIFO exists and is a real FIFO
+
+### Fixed
+
+- Claude Code `/voice` could not enable - the flat `/run` sink was uncreatable by the userspace daemon (runs as a non-root user, `/run` is root-owned) and `module-pipe-source` aborted with "Module initialization failed" on the FIFO the server pre-created at boot
+
 ## [1.0.6] - 2026-06-09
 
 ### Added

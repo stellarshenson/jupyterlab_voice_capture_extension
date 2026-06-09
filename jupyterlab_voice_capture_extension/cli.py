@@ -6,8 +6,11 @@ is a separate operator convenience for provisioning and verifying that plumbing 
 container, exactly as documented in ``docs/jupyterlab-enable-claude-voice.md``.
 
 Commands:
-  install   - install packages, provision the FIFO directory, start a userspace PulseAudio
-              daemon, expose the pipe-source as the default source, and make it discoverable
+  install   - install packages, provision the lab-owned FIFO directory, write the PulseAudio
+              client config and the extension's sink_path; does not start the daemon
+  start     - start the userspace PulseAudio daemon and load the pipe-source (which creates
+              the FIFO) as the default source
+  stop      - kill the userspace PulseAudio daemon
   validate  - check every component is in place and print how to configure what is missing,
               including the AUDIODRIVER=pulseaudio setting the claude process needs
 """
@@ -22,7 +25,7 @@ import stat
 import subprocess
 import sys
 
-DEFAULT_SINK_PATH = "/run/pulseaudio.fifo"
+DEFAULT_SINK_PATH = "/run/voice/pulseaudio.fifo"
 SOURCE_NAME = "voicein"
 PULSE_RUNTIME_PATH = "/tmp/pulse-lab"
 PULSE_SOCKET = f"{PULSE_RUNTIME_PATH}/native"
@@ -252,13 +255,13 @@ def cmd_install(args) -> int:
 
     print("\nDone. install does not start the daemon. Next steps:\n")
     print("  1) start the bridge (also re-run after every container restart):")
-    print("       jupyterlab_voice_capture_extension start -d")
+    print("       jupyterlab_voice_capture start -d")
     print("  2) set the SoX driver in the shell that launches claude:")
     print("       bash:  export AUDIODRIVER=pulseaudio")
     print("       fish:  set -gx AUDIODRIVER pulseaudio")
     print(
         "\nThen verify with:\n"
-        "  jupyterlab_voice_capture_extension validate"
+        "  jupyterlab_voice_capture validate"
     )
     return 0
 
@@ -277,6 +280,10 @@ def cmd_validate(args) -> int:
         if ln.startswith("Default Source:"):
             default_source = ln.split(":", 1)[1].strip()
 
+    # The source is only functionally connected when its backing FIFO is a real FIFO; a
+    # loaded module against a missing or non-FIFO path must never read green.
+    fifo_ok = _is_fifo(sink)
+
     checks = [
         ("pulseaudio on PATH", shutil.which("pulseaudio") is not None,
          "apt install pulseaudio"),
@@ -288,14 +295,14 @@ def cmd_validate(args) -> int:
          "apt install libsox-fmt-pulse"),
         (f"runtime dir {sink_dir}", os.path.isdir(sink_dir),
          f"sudo install -d -m 0755 -o $(id -un) -g $(id -gn) {sink_dir}"),
-        (f"FIFO {sink}", _is_fifo(sink),
-         "created by the extension or module-pipe-source once both are running"),
+        (f"FIFO {sink}", fifo_ok,
+         "created by module-pipe-source: jupyterlab_voice_capture start"),
         ("PulseAudio daemon reachable", rc_info == 0,
-         "jupyterlab_voice_capture_extension start"),
-        (f"source '{SOURCE_NAME}' loaded", SOURCE_NAME in sources,
-         "jupyterlab_voice_capture_extension start"),
-        (f"default source is '{SOURCE_NAME}'", default_source == SOURCE_NAME,
-         f"jupyterlab_voice_capture_extension start  (or: pactl set-default-source {SOURCE_NAME})"),
+         "jupyterlab_voice_capture start"),
+        (f"source '{SOURCE_NAME}' connected", (SOURCE_NAME in sources) and fifo_ok,
+         "jupyterlab_voice_capture start"),
+        (f"default source is '{SOURCE_NAME}'", default_source == SOURCE_NAME and fifo_ok,
+         f"jupyterlab_voice_capture start  (or: pactl set-default-source {SOURCE_NAME})"),
         ("default-server in client.conf", _client_conf_has_default_server(),
          f'echo "default-server = unix:{PULSE_SOCKET}" | sudo tee -a {PULSE_CLIENT_CONF}'),
         ("AUDIODRIVER=pulseaudio in this env", os.environ.get("AUDIODRIVER") == "pulseaudio",
@@ -361,7 +368,7 @@ def cmd_start(args) -> int:
     if args.detached:
         print(
             "Daemon running (detached). Stop it with: "
-            "jupyterlab_voice_capture_extension stop"
+            "jupyterlab_voice_capture stop"
         )
         return 0
     print("Daemon running. Press Ctrl-C to stop.")

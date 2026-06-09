@@ -5,10 +5,15 @@ out-of-scope plumbing layer (PulseAudio ``module-pipe-source`` + SoX) reads that
 turns it into the system default audio source. This module only delivers correct PCM to
 the pipe.
 
-Tolerates an absent reader (PulseAudio not yet attached) without crashing or blocking the
-Jupyter server: frames are buffered in a bounded queue and the oldest are dropped once the
-bound is reached. A dedicated writer thread owns the FIFO file descriptor, so the server's
-IOLoop is never blocked on a pipe write.
+The PulseAudio reader (``module-pipe-source``) owns the FIFO and creates it; this server
+only attaches as the writer. ``module-pipe-source`` refuses to attach to a pre-existing
+FIFO, so the server must never create one - it waits for the reader's FIFO to appear and
+opens the write end when it does.
+
+Tolerates an absent reader (FIFO not yet created, or PulseAudio not yet attached) without
+crashing or blocking the Jupyter server: frames are buffered in a bounded queue and the
+oldest are dropped once the bound is reached. A dedicated writer thread owns the FIFO file
+descriptor, so the server's IOLoop is never blocked on a pipe write.
 """
 
 import errno
@@ -43,13 +48,14 @@ class FifoSink:
         return self._enabled
 
     def start(self):
-        """Ensure the FIFO exists and launch the writer thread.
+        """Validate the sink path and launch the writer thread.
 
-        Returns True when the sink is live, False when the configured path already exists
-        as something other than a FIFO (a regular file is never written to).
+        The FIFO is created by the PulseAudio reader, not here. Returns True when the sink
+        is live, False when the configured path already exists as something other than a
+        FIFO (a regular file is never written to).
         """
         try:
-            self._ensure_fifo()
+            self._guard_path()
         except OSError as exc:
             self._log.error("voice-capture: cannot prepare sink %s: %s", self._path, exc)
             return False
@@ -60,19 +66,18 @@ class FifoSink:
         self._thread.start()
         return True
 
-    def _ensure_fifo(self):
-        """Create the FIFO if absent; refuse to touch a non-FIFO path (C5)."""
+    def _guard_path(self):
+        """Refuse to touch a non-FIFO path (C5). The FIFO itself is created by the
+        PulseAudio reader (module-pipe-source); an absent path is fine - the writer
+        thread waits for the reader to create it."""
         if os.path.exists(self._path):
             mode = os.stat(self._path).st_mode
             if not stat.S_ISFIFO(mode):
                 raise OSError(
                     errno.EEXIST,
-                    f"path exists and is not a FIFO; refusing to write to it",
+                    "path exists and is not a FIFO; refusing to write to it",
                     self._path,
                 )
-            return
-        os.mkfifo(self._path, 0o600)
-        self._log.info("voice-capture: created FIFO sink at %s", self._path)
 
     def write(self, data):
         """Enqueue a PCM frame, dropping the oldest frame when the buffer is full (C3)."""
@@ -111,14 +116,15 @@ class FifoSink:
                     pass
 
     def _open_fifo(self):
-        """Open the FIFO write end, polling so a missing reader never blocks forever."""
+        """Open the FIFO write end, polling so a missing FIFO or reader never blocks forever."""
         while not self._stop.is_set():
             try:
-                # O_NONBLOCK write-open raises ENXIO until a reader attaches; poll rather
-                # than block so the thread stays responsive to close().
+                # O_NONBLOCK write-open raises ENXIO until a reader attaches, and the path
+                # raises ENOENT until module-pipe-source creates the FIFO; poll on both so
+                # the thread stays responsive to close().
                 return os.open(self._path, os.O_WRONLY | os.O_NONBLOCK)
             except OSError as exc:
-                if exc.errno == errno.ENXIO:
+                if exc.errno in (errno.ENXIO, errno.ENOENT):
                     self._stop.wait(0.2)
                     continue
                 self._log.warning("voice-capture: cannot open sink %s: %s", self._path, exc)

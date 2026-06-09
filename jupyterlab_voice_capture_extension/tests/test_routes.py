@@ -18,12 +18,11 @@ def jp_server_config(jp_server_config, voice_sink_path):
     return config
 
 
-async def test_fifo_created_and_pcm_written_verbatim(jp_ws_fetch, voice_sink_path):
-    # C4: the sink FIFO is created at extension load.
-    assert os.path.exists(voice_sink_path)
+async def test_pcm_written_verbatim(jp_ws_fetch, voice_sink_path):
+    # The PulseAudio reader owns FIFO creation; create it here to play that role, then
+    # attach as reader before streaming so the writer thread can open the pipe.
+    os.mkfifo(voice_sink_path)
     assert stat.S_ISFIFO(os.stat(voice_sink_path).st_mode)
-
-    # Attach a reader before streaming so the writer thread can open the pipe.
     rfd = os.open(voice_sink_path, os.O_RDONLY | os.O_NONBLOCK)
     try:
         ws = await jp_ws_fetch(
@@ -52,6 +51,7 @@ async def test_fifo_created_and_pcm_written_verbatim(jp_ws_fetch, voice_sink_pat
 async def test_multiframe_round_trip_in_order(jp_ws_fetch, voice_sink_path):
     # C2: many binary frames pushed from the browser end arrive at the FIFO end byte-for-byte
     # and in order. Each 640-byte frame carries a distinct marker so reordering is detectable.
+    os.mkfifo(voice_sink_path)  # reader owns FIFO creation
     rfd = os.open(voice_sink_path, os.O_RDONLY | os.O_NONBLOCK)
     try:
         ws = await jp_ws_fetch("jupyterlab-voice-capture-extension", "stream")
