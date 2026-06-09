@@ -49,6 +49,33 @@ async def test_fifo_created_and_pcm_written_verbatim(jp_ws_fetch, voice_sink_pat
         os.close(rfd)
 
 
+async def test_multiframe_round_trip_in_order(jp_ws_fetch, voice_sink_path):
+    # C2: many binary frames pushed from the browser end arrive at the FIFO end byte-for-byte
+    # and in order. Each 640-byte frame carries a distinct marker so reordering is detectable.
+    rfd = os.open(voice_sink_path, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        ws = await jp_ws_fetch("jupyterlab-voice-capture-extension", "stream")
+        frames = [bytes([i]) * 640 for i in range(20)]  # 20 frames, 12800 bytes total
+        for frame in frames:
+            await ws.write_message(frame, binary=True)
+
+        expected = b"".join(frames)
+        received = b""
+        for _ in range(80):
+            await asyncio.sleep(0.05)
+            try:
+                received += os.read(rfd, 65536)
+            except BlockingIOError:
+                pass
+            if len(received) >= len(expected):
+                break
+        ws.close()
+
+        assert received == expected  # exact bytes, exact order
+    finally:
+        os.close(rfd)
+
+
 async def test_tolerates_absent_reader(jp_ws_fetch):
     # C3: streaming with no FIFO reader attached must not crash the server.
     ws = await jp_ws_fetch("jupyterlab-voice-capture-extension", "stream")
