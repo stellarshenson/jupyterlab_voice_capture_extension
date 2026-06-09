@@ -1,0 +1,15 @@
+{
+  "jupyter.lab.setting-icon-label": "Voice Capture",
+  "title": "Voice Capture",
+  "description": "Settings for the voice capture extension.",
+  "type": "object",
+  "properties": {
+    "autoConnect": {
+      "type": "boolean",
+      "title": "Auto-connect on startup",
+      "description": "Start microphone capture automatically when JupyterLab loads. Off by default - capture normally begins only when you click the status-bar microphone.",
+      "default": false
+    }
+  },
+  "additionalProperties": false
+}

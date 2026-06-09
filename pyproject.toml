@@ -23,9 +23,13 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "jupyter_server>=2.4.0,<3"
+    "jupyter_server>=2.4.0,<3",
+    "traitlets>=5.0",
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
+
+[project.scripts]
+jupyterlab_voice_capture_extension = "jupyterlab_voice_capture_extension.cli:main"
 
 [project.optional-dependencies]
 dev = [

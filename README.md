@@ -32,10 +32,22 @@ Chain: browser mic → AudioWorklet (16 kHz mono s16le) → websocket → server
 pip install jupyterlab-voice-capture-extension
 ```
 
+## Dependencies
+
+- **Python**: `jupyter_server` and `traitlets`, installed automatically with the package
+- **System** (only for the full voice chain into a terminal app): PulseAudio + SoX. Provision and verify them with the bundled CLI:
+
+```bash
+jupyterlab_voice_capture_extension install    # set up the PulseAudio + SoX bridge
+jupyterlab_voice_capture_extension validate   # check every component, print what to fix
+```
+
+See [docs/jupyterlab-enable-claude-voice.md](docs/jupyterlab-enable-claude-voice.md) for the full setup, the `start` / `stop` daemon commands, and troubleshooting.
+
 ## Usage
 
 - Click the microphone icon in the status bar (or run **Toggle Voice Capture** from the command palette) to start capture
-- On the first start the browser asks for microphone permission; while streaming the icon pulses red and the browser shows its active-microphone indicator
+- On the first start the browser asks for microphone permission; the status label moves Disconnected → Connecting → Connected, the icon glows green while streaming, and the browser shows its active-microphone indicator
 - Click again to stop - capture tracks are released and the browser indicator clears
 - Only one tab streams at a time: starting capture in a second tab takes over and stops the first
 

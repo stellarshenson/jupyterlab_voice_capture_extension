@@ -56,25 +56,24 @@
 }
 
 .jp-VoiceCapture-status.jp-mod-streaming .jp-VoiceCapture-icon {
-  animation: vc-pulse 1.4s ease-in-out infinite;
+  animation: vc-pulse 2.4s ease-in-out infinite;
 }
 
 .jp-VoiceCapture-status.jp-mod-error .jp-VoiceCapture-icon {
   animation: vc-blink 1s steps(1, end) infinite;
 }
 
-/* connected: intense green glow pulse */
+/* connected: subtle green glow pulse */
 @keyframes vc-pulse {
   0%,
   100% {
-    opacity: 0.85;
-    filter: drop-shadow(0 0 2px var(--jp-success-color1));
+    opacity: 0.95;
+    filter: drop-shadow(0 0 1px var(--jp-success-color1));
   }
 
   50% {
     opacity: 1;
-    filter: drop-shadow(0 0 9px var(--jp-success-color1))
-      drop-shadow(0 0 4px var(--jp-success-color1));
+    filter: drop-shadow(0 0 3px var(--jp-success-color1));
   }
 }
 

@@ -1,6 +1,6 @@
 {
     "name": "jupyterlab_voice_capture_extension",
-    "version": "0.4.5",
+    "version": "1.0.2",
     "description": "JupyterLab extension that captures microphone audio in the browser and streams it to a server-side bridge, exposing it as a virtual audio source so terminal applications running in the container (such as Claude Code voice mode) can record from the user's microphone",
     "keywords": [
         "jupyter",
@@ -19,7 +19,8 @@
     "files": [
         "lib/**/*.{d.ts,eot,gif,html,jpg,js,js.map,json,png,svg,woff2,ttf}",
         "style/**/*.{css,js,eot,gif,html,jpg,json,png,svg,woff2,ttf}",
-        "src/**/*.{ts,tsx}"
+        "src/**/*.{ts,tsx}",
+        "schema/*.json"
     ],
     "main": "lib/index.js",
     "types": "lib/index.d.ts",
@@ -60,6 +61,7 @@
         "@jupyterlab/apputils": "^4.0.0",
         "@jupyterlab/coreutils": "^6.0.0",
         "@jupyterlab/services": "^7.0.0",
+        "@jupyterlab/settingregistry": "^4.0.0",
         "@jupyterlab/statusbar": "^4.0.0",
         "@jupyterlab/ui-components": "^4.0.0",
         "@lumino/signaling": "^2.0.0",
@@ -121,7 +123,8 @@
             }
         },
         "extension": true,
-        "outputDir": "jupyterlab_voice_capture_extension/labextension"
+        "outputDir": "jupyterlab_voice_capture_extension/labextension",
+        "schemaDir": "schema"
     },
     "prettier": {
         "singleQuote": true,
