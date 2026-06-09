@@ -7,7 +7,21 @@ except ImportError:
     import warnings
     warnings.warn("Importing 'jupyterlab_voice_capture_extension' outside a proper installation.")
     __version__ = "dev"
+from traitlets import Unicode
+from traitlets.config import Configurable
+
 from .routes import setup_route_handlers
+from .sink import FifoSink
+
+
+class VoiceCapture(Configurable):
+    """Configuration for the voice-capture server extension."""
+
+    sink_path = Unicode(
+        "/tmp/voice.fifo",
+        config=True,
+        help="Path to the FIFO sink that receives raw PCM audio frames.",
+    )
 
 
 def _jupyter_labextension_paths():
@@ -31,6 +45,10 @@ def _load_jupyter_server_extension(server_app):
     server_app: jupyterlab.labapp.LabApp
         JupyterLab application instance
     """
-    setup_route_handlers(server_app.web_app)
+    config = VoiceCapture(config=server_app.config)
+    sink = FifoSink(config.sink_path, server_app.log)
+    sink.start()
+    server_app.web_app.settings["voice_capture_sink"] = sink
+    setup_route_handlers(server_app.web_app, sink)
     name = "jupyterlab_voice_capture_extension"
-    server_app.log.info(f"Registered {name} server extension")
+    server_app.log.info(f"Registered {name} server extension (sink={config.sink_path})")

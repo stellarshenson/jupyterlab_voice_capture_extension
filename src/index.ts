@@ -3,27 +3,56 @@ import {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 
-import { requestAPI } from './request';
+import { ICommandPalette } from '@jupyterlab/apputils';
+
+import { IStatusBar } from '@jupyterlab/statusbar';
+
+import { VoiceCapture } from './voice-capture';
+
+import { VoiceStatus } from './status';
+
+const TOGGLE_COMMAND = 'voice-capture:toggle';
 
 /**
  * Initialization data for the jupyterlab_voice_capture_extension extension.
  */
 const plugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_voice_capture_extension:plugin',
-  description: 'JupyterLab extension that captures microphone audio in the browser and streams it to a server-side bridge, exposing it as a virtual audio source so terminal applications running in the container (such as Claude Code voice mode) can record from the user\'s microphone',
+  description:
+    "JupyterLab extension that captures microphone audio in the browser and streams it to a server-side bridge, exposing it as a virtual audio source so terminal applications running in the container (such as Claude Code voice mode) can record from the user's microphone",
   autoStart: true,
-  activate: (app: JupyterFrontEnd) => {
-    console.log('JupyterLab extension jupyterlab_voice_capture_extension is activated!');
+  optional: [ICommandPalette, IStatusBar],
+  activate: (
+    app: JupyterFrontEnd,
+    palette: ICommandPalette | null,
+    statusBar: IStatusBar | null
+  ) => {
+    console.log(
+      'JupyterLab extension jupyterlab_voice_capture_extension is activated!'
+    );
 
-    requestAPI<any>('hello', app.serviceManager.serverSettings)
-      .then(data => {
-        console.log(data);
-      })
-      .catch(reason => {
-        console.error(
-          `The jupyterlab_voice_capture_extension server extension appears to be missing.\n${reason}`
-        );
-      });
+    const model = new VoiceCapture(app.serviceManager.serverSettings);
+
+    app.commands.addCommand(TOGGLE_COMMAND, {
+      label: 'Toggle Voice Capture',
+      isToggled: () => model.enabled,
+      execute: () => model.toggle()
+    });
+
+    if (palette) {
+      palette.addItem({ command: TOGGLE_COMMAND, category: 'Voice Capture' });
+    }
+
+    if (statusBar) {
+      statusBar.registerStatusItem(
+        'jupyterlab_voice_capture_extension:status',
+        {
+          item: new VoiceStatus(model),
+          align: 'right',
+          rank: 100
+        }
+      );
+    }
   }
 };
 

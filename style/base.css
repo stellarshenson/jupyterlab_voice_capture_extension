@@ -3,3 +3,37 @@
 
     https://jupyterlab.readthedocs.io/en/stable/developer/css.html
 */
+
+.jp-VoiceCapture-status {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: pointer;
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-VoiceCapture-status svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* idle: neutral; streaming: faint pulsating red; error: warning colour */
+.jp-VoiceCapture-status.jp-mod-streaming {
+  color: var(--jp-error-color1);
+  animation: vc-pulse 1.6s ease-in-out infinite;
+}
+
+.jp-VoiceCapture-status.jp-mod-error {
+  color: var(--jp-warn-color1);
+}
+
+@keyframes vc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}

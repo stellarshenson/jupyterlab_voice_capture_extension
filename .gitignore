@@ -126,3 +126,9 @@ dmypy.json
 
 # Yarn cache
 .yarn/
+
+# Project-local node environment (Makefile)
+.nodeenv/
+
+# Test output
+junit.xml
