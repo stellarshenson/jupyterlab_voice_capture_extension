@@ -11,9 +11,10 @@ FIFO, so the server must never create one - it waits for the reader's FIFO to ap
 opens the write end when it does.
 
 Tolerates an absent reader (FIFO not yet created, or PulseAudio not yet attached) without
-crashing or blocking the Jupyter server: frames are buffered in a bounded queue and the
-oldest are dropped once the bound is reached. A dedicated writer thread owns the FIFO file
-descriptor, so the server's IOLoop is never blocked on a pipe write.
+crashing or blocking the Jupyter server: frames that arrive while no reader is attached are
+discarded, so a reader that attaches later gets live audio only. Frames wait in a bounded
+queue whose oldest entries are dropped once the bound is reached. A dedicated writer thread
+owns the FIFO file descriptor, so the server's IOLoop is never blocked on a pipe write.
 """
 
 import errno
@@ -109,6 +110,11 @@ class FifoSink:
                 return  # stopped while waiting for a reader
             try:
                 self._drain(fd)
+            except BrokenPipeError:
+                pass  # reader gone (logged by _write_frame); reopen for the next reader
+            except OSError as exc:
+                self._log.warning("voice-capture: sink write failed, reopening: %s", exc)
+                self._stop.wait(0.5)
             finally:
                 try:
                     os.close(fd)
@@ -117,18 +123,32 @@ class FifoSink:
 
     def _open_fifo(self):
         """Open the FIFO write end, polling so a missing FIFO or reader never blocks forever."""
+        refused = False
         while not self._stop.is_set():
             try:
                 # O_NONBLOCK write-open raises ENXIO until a reader attaches, and the path
                 # raises ENOENT until module-pipe-source creates the FIFO; poll on both so
                 # the thread stays responsive to close().
-                return os.open(self._path, os.O_WRONLY | os.O_NONBLOCK)
+                fd = os.open(self._path, os.O_WRONLY | os.O_NONBLOCK)
             except OSError as exc:
                 if exc.errno in (errno.ENXIO, errno.ENOENT):
+                    # No reader: frames queued now would reach the next reader as old audio.
+                    while not self._queue.empty():
+                        self._queue.get_nowait()
                     self._stop.wait(0.2)
                     continue
                 self._log.warning("voice-capture: cannot open sink %s: %s", self._path, exc)
                 self._stop.wait(0.5)
+                continue
+            if stat.S_ISFIFO(os.fstat(fd).st_mode):
+                return fd
+            os.close(fd)  # C5: a regular file opens too, but audio never goes to disk
+            if not refused:
+                self._log.error(
+                    "voice-capture: sink %s is not a FIFO; refusing to write to it", self._path
+                )
+                refused = True
+            self._stop.wait(0.5)
         return None
 
     def _drain(self, fd):

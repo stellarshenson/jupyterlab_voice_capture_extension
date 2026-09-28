@@ -1,4 +1,5 @@
 import json
+import os
 
 import jupyterlab_voice_capture_extension.cli as cli
 
@@ -121,3 +122,54 @@ def test_validate_json_all_present_exits_zero(capsys, monkeypatch):
     assert rc == 0
     assert data["ok"] is True
     assert data["missing"] == []
+
+
+def _record_runs(monkeypatch):
+    """Record the commands start would run, without running any of them."""
+    runs = []
+    monkeypatch.setattr(cli, "_run", lambda cmd, **kw: runs.append(cmd) or 0)
+    return runs
+
+
+def test_start_removes_a_leftover_fifo_before_loading_the_source(tmp_path, monkeypatch):
+    # DEF-CLI-6: module-pipe-source refuses an existing path, so a FIFO left by a killed
+    # daemon is removed before the source is loaded.
+    sink = str(tmp_path / "pulseaudio.fifo")
+    os.mkfifo(sink)
+    runs = _record_runs(monkeypatch)
+    monkeypatch.setattr(cli, "_daemon_running", lambda: True)
+    monkeypatch.setattr(cli, "_source_loaded", lambda: False)
+
+    cli._start_pulse_and_source(sink, dry=False)
+
+    load = next(i for i, cmd in enumerate(runs) if "load-module" in cmd)
+    assert ["rm", "-f", sink] in runs[:load]
+
+
+def test_start_exits_1_when_the_source_did_not_load(tmp_path, capsys, monkeypatch):
+    # DEF-CLI-6: a daemon without voicein is a failed start, not exit 0.
+    _record_runs(monkeypatch)
+    monkeypatch.setattr(cli, "_daemon_running", lambda: True)
+    monkeypatch.setattr(cli, "_source_loaded", lambda: False)
+
+    rc = cli.main(["start", "-d", "--sink-path", str(tmp_path / "pulseaudio.fifo")])
+
+    assert rc == 1
+    assert "validate" in capsys.readouterr().out
+
+
+
+def test_start_keeps_voicein_reading_through_a_drain(tmp_path, monkeypatch):
+    # DEF-BRIDGE-7: a loopback from voicein into the voicedrain null sink keeps the
+    # pipe-source reading, so no old audio waits in the FIFO for /voice.
+    runs = _record_runs(monkeypatch)
+    monkeypatch.setattr(cli, "_daemon_running", lambda: True)
+    monkeypatch.setattr(cli, "_source_loaded", lambda: False)
+
+    cli._start_pulse_and_source(str(tmp_path / "pulseaudio.fifo"), dry=False)
+
+    loads = [cmd for cmd in runs if "load-module" in cmd]
+    assert [cmd[2] for cmd in loads] == ["module-pipe-source", "module-null-sink", "module-loopback"]
+    assert "sink_name=voicedrain" in loads[1]
+    assert f"source={cli.SOURCE_NAME}" in loads[2] and "sink=voicedrain" in loads[2]
+    assert cli.SOURCE_NAME not in "voicedrain"  # _source_loaded matches by substring

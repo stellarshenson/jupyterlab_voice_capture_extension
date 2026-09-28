@@ -83,6 +83,11 @@ class FakeWebSocket {
     this.readyState = FakeWebSocket.OPEN;
     this.onopen?.({});
   }
+  /** test helper: simulate the connection closing from the server side */
+  _drop(code: number): void {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.({ code });
+  }
 }
 
 const SETTINGS = {
@@ -194,6 +199,115 @@ describe('VoiceCapture', () => {
     expect((navigator as any).mediaDevices.getUserMedia).not.toHaveBeenCalled();
 
     vc.dispose();
+  });
+
+  it('captures nothing until it is turned on (A1)', () => {
+    const vc = new VoiceCapture(SETTINGS);
+    expect((navigator as any).mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    expect(vc.state).toBe('idle');
+
+    vc.toggle();
+
+    expect((navigator as any).mediaDevices.getUserMedia).toHaveBeenCalledTimes(
+      1
+    );
+    vc.dispose();
+  });
+
+  it('a second click during the permission prompt releases the late stream', async () => {
+    let grant: (s: FakeStream) => void = () => undefined;
+    (navigator as any).mediaDevices.getUserMedia = jest.fn(
+      () => new Promise(resolve => (grant = resolve))
+    );
+    (FakeWebSocket as any).last = undefined;
+    const vc = new VoiceCapture(SETTINGS);
+
+    vc.toggle(); // enable: waiting on the permission prompt
+    vc.toggle(); // disable before the prompt resolves
+    grant(stream);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(vc.state).toBe('idle');
+    expect(vc.enabled).toBe(false);
+    expect(stream.getTracks()[0].stopped).toBe(true);
+    expect(FakeWebSocket.last).toBeUndefined();
+    vc.dispose();
+  });
+
+  it('schedules nothing while idle (D4)', async () => {
+    jest.useFakeTimers();
+    try {
+      const vc = new VoiceCapture(SETTINGS);
+      expect(jest.getTimerCount()).toBe(0);
+
+      await vc.enable();
+      FakeWebSocket.last._open();
+      vc.disable();
+
+      expect(jest.getTimerCount()).toBe(0);
+      vc.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reports a missing device differently from a denial (E2)', async () => {
+    (navigator as any).mediaDevices.getUserMedia = jest
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error('none'), { name: 'NotFoundError' })
+      );
+    const vc = new VoiceCapture(SETTINGS);
+    await vc.enable();
+
+    expect(vc.state).toBe('error');
+    expect(vc.enabled).toBe(false);
+    expect(vc.message).toBe('No microphone input device found.');
+    vc.dispose();
+  });
+
+  it('reconnects after a dropped connection and keeps capture on (D1)', async () => {
+    jest.useFakeTimers();
+    try {
+      const vc = new VoiceCapture(SETTINGS);
+      await vc.enable();
+      const first = FakeWebSocket.last;
+      first._open();
+
+      first._drop(1006);
+      expect(vc.state).toBe('connecting');
+      expect(vc.enabled).toBe(true);
+      jest.advanceTimersByTime(500); // first backoff step
+      expect(FakeWebSocket.last).not.toBe(first);
+      FakeWebSocket.last._open();
+
+      expect(vc.state).toBe('streaming');
+      expect(stream.getTracks()[0].stopped).toBe(false);
+      vc.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops without reconnecting when another tab takes over (D3)', async () => {
+    jest.useFakeTimers();
+    try {
+      const vc = new VoiceCapture(SETTINGS);
+      await vc.enable();
+      const first = FakeWebSocket.last;
+      first._open();
+
+      first._drop(4001); // SUPERSEDED_CLOSE_CODE from routes.py
+      jest.advanceTimersByTime(20000);
+
+      expect(vc.state).toBe('idle');
+      expect(vc.enabled).toBe(false);
+      expect(stream.getTracks()[0].stopped).toBe(true);
+      expect(FakeWebSocket.last).toBe(first); // no reconnect
+      vc.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('disconnects on a click in a blocking error instead of retrying', async () => {

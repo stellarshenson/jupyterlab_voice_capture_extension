@@ -163,6 +163,10 @@ def _start_pulse_and_source(sink: str, dry: bool) -> None:
     if not dry and _source_loaded():
         print(f"  source '{SOURCE_NAME}' already loaded")
     else:
+        # A FIFO with no voicein loaded was left by a daemon killed without unloading the
+        # source; module-pipe-source refuses an existing path.
+        if _is_fifo(sink):
+            _run(["rm", "-f", sink], dry=dry)
         _run(
             [
                 "pactl",
@@ -174,6 +178,13 @@ def _start_pulse_and_source(sink: str, dry: bool) -> None:
                 f"rate={RATE}",
                 f"channels={CHANNELS}",
             ],
+            dry=dry,
+        )
+        # The loopback keeps voicein reading the FIFO while nothing records, so no old
+        # audio waits in the pipe for the next /voice recording.
+        _run(["pactl", "load-module", "module-null-sink", "sink_name=voicedrain"], dry=dry)
+        _run(
+            ["pactl", "load-module", "module-loopback", f"source={SOURCE_NAME}", "sink=voicedrain"],
             dry=dry,
         )
     _run(["pactl", "set-default-source", SOURCE_NAME], dry=dry)
@@ -362,8 +373,11 @@ def cmd_start(args) -> int:
     sink = args.sink_path
     print(f"Starting PulseAudio voice bridge (source '{SOURCE_NAME}' -> {sink})")
     _start_pulse_and_source(sink, dry=False)
-    if not _daemon_running():
-        print("Failed to start the PulseAudio daemon.")
+    if not _daemon_running() or not _source_loaded():
+        print(
+            f"Failed to start the PulseAudio daemon or load source '{SOURCE_NAME}' - "
+            "run: jupyterlab_voice_capture validate"
+        )
         return 1
     if args.detached:
         print(
@@ -432,7 +446,7 @@ def _write_sink_config(cfg: str, sink: str, dry: bool) -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        prog="jupyterlab_voice_capture_extension",
+        prog="jupyterlab_voice_capture",
         description="Provision and verify the voice-capture container plumbing "
         "(PulseAudio + SoX bridge for the FIFO the extension writes).",
     )

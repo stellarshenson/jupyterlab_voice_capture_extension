@@ -11,7 +11,8 @@ import { WORKLET_PROCESSOR_NAME, workletModuleUrl } from './worklet';
  * (Off), `connecting` = capture on but the websocket is not open yet - initial connect or
  * auto-reconnect (Connecting), `streaming` = capturing and frames flowing (Connected),
  * `error` = a blocking failure (denied permission, missing device, insecure context) that
- * turned capture off. `error` carries a human-readable message.
+ * turned capture off, or an endpoint still unreachable after 10 s while capture stays on
+ * and keeps retrying. `error` carries a human-readable message.
  */
 export type VoiceCaptureState = 'idle' | 'connecting' | 'streaming' | 'error';
 
@@ -20,6 +21,9 @@ const MAX_BACKOFF_MS = 10000;
 // How long the websocket may stay unconnected before the control shows Error. Retries
 // continue in the background, so it still recovers to Connected if the bridge comes up.
 const CONNECT_TIMEOUT_MS = 10000;
+// Close code the server sends when a newer tab takes over (SUPERSEDED_CLOSE_CODE in
+// routes.py). This tab stops capture instead of reconnecting and taking the stream back.
+const SUPERSEDED_CLOSE_CODE = 4001;
 
 /**
  * Owns the browser capture pipeline and its lifecycle: getUserMedia, the 16 kHz
@@ -71,26 +75,44 @@ export class VoiceCapture {
       return;
     }
     this._enabled = true;
+    // A disable() while this call awaits advances the epoch; the call then owns nothing.
+    const epoch = this._epoch;
     this._setState('connecting', ''); // shown while the permission prompt / connect runs
+    let stream: MediaStream;
     try {
-      this._stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
+      if (epoch !== this._epoch) {
+        return;
+      }
       this._enabled = false;
       this._handleGetUserMediaError(err);
       return;
     }
+    if (epoch !== this._epoch) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    this._stream = stream;
     try {
       await this._startAudioGraph();
     } catch (err) {
+      if (epoch !== this._epoch) {
+        return;
+      }
       this._enabled = false;
       this._teardownAudio();
       this._setError(`Failed to start audio capture: ${String(err)}`);
+      return;
+    }
+    if (epoch !== this._epoch) {
       return;
     }
     this._connect();
   }
 
   disable(): void {
+    this._epoch++;
     this._enabled = false;
     this._clearReconnect();
     this._clearConnectDeadline();
@@ -179,9 +201,13 @@ export class VoiceCapture {
       this._clearConnectDeadline();
       this._setState('streaming', '');
     };
-    ws.onclose = () => {
+    ws.onclose = (ev: CloseEvent) => {
       this._ws = null;
       if (!this._enabled) {
+        return;
+      }
+      if (ev.code === SUPERSEDED_CLOSE_CODE) {
+        this.disable(); // D3: another tab took over
         return;
       }
       // E4 / D1: unreachable or dropped while enabled -> keep connecting and retry with
@@ -201,7 +227,9 @@ export class VoiceCapture {
       this._connectTimeout = null;
       // Still not connected after the window -> show Error, but keep retrying.
       if (this._enabled && this._state !== 'streaming') {
-        this._setError('Voice-capture endpoint unreachable.');
+        this._setError(
+          'Voice-capture endpoint unreachable - retrying with the microphone on. Click to stop.'
+        );
       }
     }, CONNECT_TIMEOUT_MS);
   }
@@ -281,6 +309,7 @@ export class VoiceCapture {
   private _state: VoiceCaptureState = 'idle';
   private _message = '';
   private _enabled = false;
+  private _epoch = 0;
 
   private _stream: MediaStream | null = null;
   private _audioContext: AudioContext | null = null;

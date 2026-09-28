@@ -45,7 +45,7 @@ Routes a browser microphone into a sealed JupyterLab container so Claude Code `/
 - the **reader** owns the FIFO: `module-pipe-source` calls `mkfifo()` itself and refuses to attach to a pre-existing FIFO, so the plumbing creates it and the extension must never create one
 - extension is the FIFO **writer**; it opens `O_WRONLY|O_NONBLOCK` and polls (ENOENT until the reader creates the FIFO, ENXIO until the reader attaches), so the source loading unblocks it
 - sink lives in a **lab-owned subfolder** `/run/voice/`, not flat `/run` - the daemon runs as the Jupyter-server user and cannot create files in root-owned `/run`; a subfolder it owns lets `module-pipe-source` create and recreate the FIFO without sudo
-- `/run` is runtime state, never age-reaped mid-session; it is tmpfs, recreated empty at boot (see Durability)
+- `/run` is runtime state, never age-reaped mid-session; it can be tmpfs, recreated empty at boot (see Durability)
 - the path is a private rendezvous (`c.VoiceCapture.sink_path` must equal `module-pipe-source file=`), not an OS-standard location
 
 ## CLI (the fast path)
@@ -79,7 +79,7 @@ Output is coloured only for status - green OK, red missing, yellow warning - and
 `install` runs four idempotent steps and re-runs safely. It provisions and configures, but **does not start the daemon** - that is left to `start`:
 
 - **installs packages** - `apt-get update` then `apt-get install -y pulseaudio pulseaudio-utils sox libsox-fmt-pulse`; uses `sudo` when not already root (the password prompt passes straight through). conda is not used: the conda-forge `sox` ships without the pulseaudio I/O driver, so the recorder must be the Debian `sox` + `libsox-fmt-pulse` build. If apt is absent or fails, it prints exactly which packages to install another way
-- **provisions the runtime dir** - `sudo install -d` creates the sink's parent dir (`/run/voice` by default) owned by the Jupyter-server user, so `module-pipe-source` can create and recreate the FIFO there without sudo. `/run` is tmpfs, so this dir is gone after a restart and must be recreated each boot (see Durability)
+- **provisions the runtime dir** - `sudo install -d` creates the sink's parent dir (`/run/voice` by default) owned by the Jupyter-server user, so `module-pipe-source` can create and recreate the FIFO there without sudo. `/run` can be tmpfs, so this dir can be gone after a restart and must be recreated each boot (see Durability)
 - **writes `client.conf`** - appends `default-server = unix:/tmp/pulse-lab/native` to `/etc/pulse/client.conf` if absent, so env-less clients (Claude's `rec`) find the daemon
 - **writes the Jupyter config line** - checks `~/.jupyter/jupyter_server_config.py` and, if no `c.VoiceCapture.sink_path` is set, appends `c.VoiceCapture.sink_path = "<sink>"` (restart the server to apply)
 
@@ -107,7 +107,7 @@ sudo install -d -m 0755 -o "$(id -un)" -g "$(id -gn)" /run/voice
 ```
 
 - the daemon runs as the Jupyter-server user and cannot create files in root-owned `/run`; a subfolder it owns is the only place `module-pipe-source` can create the FIFO without sudo
-- recreate this each boot - `/run` is tmpfs
+- recreate this each boot - `/run` can be tmpfs
 
 ### 3. Install the audio stack - CLI: `install`
 
@@ -129,11 +129,14 @@ pulseaudio --daemonize=yes --exit-idle-time=-1 -n --load="module-native-protocol
 
 pactl load-module module-pipe-source \
   source_name=voicein file=/run/voice/pulseaudio.fifo format=s16le rate=16000 channels=1
+pactl load-module module-null-sink sink_name=voicedrain
+pactl load-module module-loopback source=voicein sink=voicedrain
 pactl set-default-source voicein
 ```
 
 - `-n` skips the default config so the daemon does not scan for non-existent sound cards
 - `module-pipe-source` creates `/run/voice/pulseaudio.fifo` itself - it must not pre-exist (the module refuses an existing FIFO with "Module initialization failed"), and `/run/voice` must already exist and be writable by this user (step 2)
+- the loopback into the `voicedrain` null sink keeps `voicein` reading the FIFO while nothing records, so no old audio waits for the next `/voice` recording
 - verify: `pactl list short sources` shows `voicein … s16le 1ch 16000Hz`; `pactl info | grep 'Default Source'` shows `voicein`
 - load the pipe-source with `pactl` after the daemon is up - an inline `--load=module-pipe-source …` with spaces is silently dropped by argument parsing
 
@@ -173,28 +176,28 @@ sox /tmp/t.wav -n stat 2>&1 | grep -iE 'Maximum amplitude|RMS'
 
 ## Durability
 
-Runtime state is live-only and lost on container restart: the daemon, the FIFO, the `/run/voice` dir, the packages. The `client.conf` and Jupyter config lines persist (they live on disk), but `/run` is tmpfs and the daemon is a process, so all of these vanish at boot. Persist with a start hook that each boot:
+Runtime state is live-only: the daemon, the FIFO, the `/run/voice` dir, the packages. The `client.conf` and Jupyter config lines persist (they live on disk), the daemon is a process and `/run` can be tmpfs, so treat all of these as lost at boot; where `/run` persists, `start` removes the FIFO the killed daemon left behind. Persist with a start hook that each boot:
 
 - installs packages if absent (or bake them into the image - the durable option)
 - recreates the lab-owned runtime dir: `sudo install -d -m 0755 -o "$(id -un)" -g "$(id -gn)" /run/voice`
 - starts the daemon + `voicein` (`jupyterlab_voice_capture start -d`); `module-pipe-source` creates the FIFO at `/run/voice/pulseaudio.fifo`
 - exports `AUDIODRIVER=pulseaudio` via the shell rc (`~/.bashrc` / fish `config.fish`)
 
-- `install` covers the one-time setup (packages + both config files) and also provisions `/run/voice`; because `/run` is tmpfs, the dir step is the one part of `install` that must repeat each boot, so wire both the dir-recreate and `start -d` into the boot hook
+- `install` covers the one-time setup (packages + both config files) and also provisions `/run/voice`; because `/run` can be tmpfs, the dir step is the one part of `install` that must repeat each boot, so wire both the dir-recreate and `start -d` into the boot hook
 - the FIFO is created only by `module-pipe-source` (via `start`); the extension's `FifoSink` never creates it - it attaches as writer and polls until the FIFO appears
-- avoid churning the daemon while the extension runs - reloading the pipe-source unlinks/recreates the FIFO, and the writer logs transient `cannot open sink …` until it reopens
+- avoid churning the daemon while the extension runs - reloading the pipe-source unlinks/recreates the FIFO, the writer logs `sink reader disconnected, awaiting a new one` and reopens when the new FIFO appears
 
 ## Troubleshooting
 
-| Symptom                                                                       | Cause                                                                                                 | Fix                                                                                                                           |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `/voice`: "could not find a working audio recorder"                           | `rec --version` exits 1 (no default driver)                                                           | export `AUDIODRIVER=pulseaudio` in the claude shell (step 6)                                                                  |
-| `rec FAIL sox: Sorry, there is no default audio device configured`            | same as above, seen directly                                                                          | same                                                                                                                          |
-| `start`: `module-pipe-source … Module initialization failed`                  | the FIFO already exists (module refuses a pre-existing FIFO), or `/run/voice` is missing/not writable | `rm -f /run/voice/pulseaudio.fifo`; ensure `/run/voice` exists and is owned by this user (`install`, or step 2), then `start` |
-| Capture is pure silence (Max ~0.0004)                                         | browser mic toggle is off, or not streaming                                                           | toggle mic on; confirm a `101 GET …/stream` in the Jupyter log                                                                |
-| Extension log loops `cannot open sink …` for an errno other than ENOENT/ENXIO | `/run/voice` exists but the FIFO is not writable by the server                                        | check the FIFO/dir ownership; a missing FIFO is polled silently and is not an error                                           |
-| `pactl` returns no sources after daemon start                                 | inline `--load=module-pipe-source …` was dropped by arg parsing                                       | load it with `pactl load-module …` (step 4)                                                                                   |
-| Claude reaches a different/absent pulse                                       | a `PULSE_SERVER` in the claude env overrides `client.conf`                                            | unset it, or point it at `unix:/tmp/pulse-lab/native`                                                                         |
+| Symptom                                                                       | Cause                                                           | Fix                                                                                       |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `/voice`: "could not find a working audio recorder"                           | `rec --version` exits 1 (no default driver)                     | export `AUDIODRIVER=pulseaudio` in the claude shell (step 6)                              |
+| `rec FAIL sox: Sorry, there is no default audio device configured`            | same as above, seen directly                                    | same                                                                                      |
+| `start`: `module-pipe-source … Module initialization failed`                  | `/run/voice` is missing/not writable                            | ensure `/run/voice` exists and is owned by this user (`install`, or step 2), then `start` |
+| Capture is pure silence (Max ~0.0004)                                         | browser mic toggle is off, or not streaming                     | toggle mic on; confirm a `101 GET …/stream` in the Jupyter log                            |
+| Extension log loops `cannot open sink …` for an errno other than ENOENT/ENXIO | `/run/voice` exists but the FIFO is not writable by the server  | check the FIFO/dir ownership; a missing FIFO is polled silently and is not an error       |
+| `pactl` returns no sources after daemon start                                 | inline `--load=module-pipe-source …` was dropped by arg parsing | load it with `pactl load-module …` (step 4)                                               |
+| Claude reaches a different/absent pulse                                       | a `PULSE_SERVER` in the claude env overrides `client.conf`      | unset it, or point it at `unix:/tmp/pulse-lab/native`                                     |
 
 ## Key facts
 

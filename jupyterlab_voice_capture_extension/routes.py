@@ -11,6 +11,10 @@ from jupyter_server.base.websocket import WebSocketMixin
 from jupyter_server.utils import url_path_join
 from tornado.websocket import WebSocketHandler
 
+# Close code sent to a producer that a newer connection replaced (D3). The frontend stops
+# capture on it instead of reconnecting, so two tabs never take the stream back and forth.
+SUPERSEDED_CLOSE_CODE = 4001
+
 
 class VoiceCaptureWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHandler):
     """Receives binary PCM frames and writes them to the FIFO sink.
@@ -38,7 +42,7 @@ class VoiceCaptureWebSocketHandler(WebSocketMixin, WebSocketHandler, JupyterHand
         existing = VoiceCaptureWebSocketHandler._active
         if existing is not None and existing is not self:
             try:
-                existing.close(1000, "superseded by a new producer")
+                existing.close(SUPERSEDED_CLOSE_CODE, "superseded by a new producer")
             except Exception:  # noqa: BLE001 - never let a stale socket block the new one
                 pass
         VoiceCaptureWebSocketHandler._active = self

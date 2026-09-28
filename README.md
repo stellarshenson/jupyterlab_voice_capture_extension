@@ -14,7 +14,7 @@ The container has no capture device; the browser does. This extension bridges th
 
 ## How it works
 
-- **Capture** - a microphone toggle in the status bar calls `getUserMedia`; an AudioWorklet resamples to 16 kHz mono and encodes signed 16-bit little-endian PCM off the UI thread
+- **Capture** - a microphone toggle in the status bar calls `getUserMedia`; the AudioContext resamples to 16 kHz; an AudioWorklet downmixes to mono and encodes signed 16-bit little-endian PCM off the UI thread
 - **Transport** - 20 ms PCM frames (640 bytes) are sent as binary websocket messages to `…/jupyterlab-voice-capture-extension/stream`, which lives under the Jupyter base URL and inherits Jupyter token auth - no new port is opened
 - **Sink** - the server handler writes each frame, in order, to a FIFO (default `/run/voice/pulseaudio.fifo`); the PulseAudio reader creates the pipe (`module-pipe-source` refuses a pre-existing one), so the handler attaches as writer, waits for the pipe to appear, and tolerates a not-yet-attached reader without blocking the server
 

@@ -31,7 +31,7 @@ const TITLES: Record<VoiceCaptureState, string> = {
 /**
  * Status-bar control: a microphone icon plus a status label, reflecting exactly one of
  * idle / connecting / streaming / error (A4). The icon animates per state - the streaming
- * state pulses faint red with a glow, the error state blinks orange (see base.css).
+ * state pulses faint green with a glow, the error state blinks orange (see base.css).
  */
 export class VoiceStatus extends Widget {
   constructor(model: VoiceCapture) {

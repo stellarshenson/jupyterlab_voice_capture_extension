@@ -31,7 +31,7 @@
 /*
   State colours apply to the whole control (icon + label); animations are scoped to the
   icon only so the label text stays steady and readable.
-  disconnected: neutral | connecting: blue fade | connected: red glow pulse | error: orange blink
+  disconnected: neutral | connecting: blue fade | connected: green glow pulse | error: orange blink
 */
 .jp-VoiceCapture-status.jp-mod-connecting {
   color: var(--jp-brand-color1);

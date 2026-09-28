@@ -14,6 +14,7 @@ jupyterlab_voice_capture_extension/_version.py
 # Integration tests
 ui-tests/test-results/
 ui-tests/playwright-report/
+ui-tests/.tmp-voice/
 
 # Created by https://www.gitignore.io/api/python
 # Edit at https://www.gitignore.io/?templates=python
@@ -135,3 +136,4 @@ junit.xml
 
 # uv lockfile (not used - project builds via hatchling/jlpm)
 uv.lock
+tmp/

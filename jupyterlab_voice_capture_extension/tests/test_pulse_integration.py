@@ -52,6 +52,22 @@ def _max_amplitude(wav_path: str) -> float:
     return float(m.group(1)) if m else 0.0
 
 
+def _drain(fifo: str) -> None:
+    """Discard whatever sits in the pipe. PulseAudio reads the FIFO only while something
+    records from the source, so tone left unread would build up across runs and play at
+    the start of the next /voice recording."""
+    fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        while True:
+            try:
+                if not os.read(fd, 65536):
+                    break
+            except BlockingIOError:
+                break
+    finally:
+        os.close(fd)
+
+
 requires_pulse = pytest.mark.skipif(
     shutil.which("rec") is None or shutil.which("sox") is None or not _pulse_up(),
     reason="PulseAudio daemon and SoX (rec/sox) required",
@@ -90,6 +106,18 @@ def test_round_trip_fifo_to_recorder(tmp_path):
     if fifo is None or not stat.S_ISFIFO(os.stat(fifo).st_mode):
         pytest.skip("no pipe-source FIFO available")
 
+    _drain(fifo)
+    out = tmp_path / "cap.wav"
+    env = dict(os.environ, AUDIODRIVER="pulseaudio")
+    # rec attaches before the tone is written: a daemon with the voicedrain loopback reads
+    # the FIFO at once, so a tone written before rec connects never reaches it.
+    proc = subprocess.Popen(
+        ["rec", "-c", "1", "-r", "16000", "-b", "16", str(out), "trim", "0", "1"],
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    time.sleep(0.3)
     writer = subprocess.Popen(
         [
             "sox", "-n",
@@ -99,21 +127,16 @@ def test_round_trip_fifo_to_recorder(tmp_path):
         stderr=subprocess.DEVNULL,
     )
     try:
-        time.sleep(0.3)  # let the tone start filling the pipe before recording
-        out = tmp_path / "cap.wav"
-        env = dict(os.environ, AUDIODRIVER="pulseaudio")
-        proc = subprocess.run(
-            ["rec", "-c", "1", "-r", "16000", "-b", "16", str(out), "trim", "0", "1"],
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        assert proc.returncode == 0, proc.stderr
+        _, err = proc.communicate(timeout=10)
+        assert proc.returncode == 0, err
         with wave.open(str(out)) as w:
             assert w.getframerate() == 16000
             assert w.getnchannels() == 1
             assert w.getsampwidth() == 2  # s16le
         assert _max_amplitude(str(out)) > 0.01, "captured audio is silent - chain broken"
     finally:
-        writer.terminate()
-        writer.wait(timeout=5)
+        proc.kill()  # rec ignores SIGTERM; a late attach must fail the test, not hang it
+        proc.wait()
+        writer.kill()  # SIGKILL: sox blocked in write() on a full pipe ignores SIGTERM
+        writer.wait()
+        _drain(fifo)
