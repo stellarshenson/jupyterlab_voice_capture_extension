@@ -195,4 +195,46 @@ describe('VoiceCapture', () => {
 
     vc.dispose();
   });
+
+  it('disconnects on a click in a blocking error instead of retrying', async () => {
+    (navigator as any).mediaDevices.getUserMedia = jest
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error('denied'), { name: 'NotAllowedError' })
+      );
+    const vc = new VoiceCapture(SETTINGS);
+    await vc.enable();
+    expect(vc.state).toBe('error');
+
+    vc.toggle();
+
+    expect(vc.state).toBe('idle');
+    expect(vc.enabled).toBe(false);
+    expect((navigator as any).mediaDevices.getUserMedia).toHaveBeenCalledTimes(
+      1
+    );
+
+    vc.dispose();
+  });
+
+  it('disconnects on a click in the endpoint-unreachable error (E4)', async () => {
+    jest.useFakeTimers();
+    try {
+      const vc = new VoiceCapture(SETTINGS);
+      await vc.enable();
+      jest.advanceTimersByTime(10000); // connect deadline → error, still retrying
+      expect(vc.state).toBe('error');
+      expect(vc.enabled).toBe(true);
+
+      vc.toggle();
+
+      expect(vc.state).toBe('idle');
+      expect(vc.enabled).toBe(false);
+      expect(stream.getTracks()[0].stopped).toBe(true);
+
+      vc.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

@@ -2,6 +2,13 @@
 
 <!-- <START NEW CHANGELOG ENTRY> -->
 
+## [1.0.10] - 2026-09-28
+
+### Changed
+
+- A click on the status-bar icon in the Error state (blinking) always disconnects and returns the control to Disconnected; previously the permission, microphone and secure-context errors started capture again on click
+- Makefile updated to the shared version 1.43: `make test` also runs pytest, `make publish` runs the tests before the version moves, and `make install` installs missing `node_modules`
+
 ## [1.0.8] - 2026-06-09
 
 ### Changed

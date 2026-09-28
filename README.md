@@ -53,6 +53,7 @@ See [docs/jupyterlab-enable-claude-voice.md](docs/jupyterlab-enable-claude-voice
 - Click the microphone icon in the status bar (or run **Toggle Voice Capture** from the command palette) to start capture
 - On the first start the browser asks for microphone permission; the status label moves Disconnected → Connecting → Connected, the icon glows green while streaming, and the browser shows its active-microphone indicator
 - Click again to stop - capture tracks are released and the browser indicator clears
+- In the Error state (blinking icon) a click disconnects and returns the control to Disconnected; click once more to start capture again
 - Only one tab streams at a time: starting capture in a second tab takes over and stops the first
 
 ## Configuration

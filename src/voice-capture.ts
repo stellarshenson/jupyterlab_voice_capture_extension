@@ -50,7 +50,9 @@ export class VoiceCapture {
   }
 
   toggle(): void {
-    if (this._enabled) {
+    // A click in the error state always disconnects, whether capture is still retrying
+    // (endpoint unreachable) or already off (permission, device, secure context).
+    if (this._enabled || this._state === 'error') {
       this.disable();
     } else {
       void this.enable();
