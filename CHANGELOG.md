@@ -2,6 +2,27 @@
 
 <!-- <START NEW CHANGELOG ENTRY> -->
 
+## [1.0.13] - 2026-09-28
+
+### Added
+
+- Galata functional test suite (`ui-tests/tests/voice_capture.spec.ts`): a real JupyterLab and Chromium with a fake microphone, with a FIFO reader standing in for PulseAudio, covering capture on and off, the 16 kHz mono s16le wire format, error handling, reconnect, tab close, tab takeover and main-thread cost
+- Acceptance-criteria and defect trackers in `docs/` (`acc-crit-voice-capture.md`, `defects-voice-capture.md`)
+
+### Changed
+
+- `jupyterlab_voice_capture start` loads a `voicedrain` null sink and a loopback from `voicein`, so PulseAudio keeps reading the FIFO while nothing records
+- `jupyterlab_voice_capture start` removes a leftover FIFO before loading the pipe-source and exits 1 when the `voicein` source did not load
+- The endpoint-unreachable error says that capture keeps retrying with the microphone on and that a click stops it
+
+### Fixed
+
+- A recording could start with old audio: up to 2 s left in the pipe while nothing recorded, and up to 5 s queued in the server while no reader was attached
+- A second click while the microphone permission prompt was open left the microphone running after the prompt was granted
+- A tab replaced by another tab took the stream back; the server now closes the replaced connection with code 4001 and that tab turns capture off
+- The server stopped writing to the FIFO for good after its reader went away once
+- A regular file placed at the sink path after startup received the audio
+
 ## [1.0.10] - 2026-09-28
 
 ### Changed

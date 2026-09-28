@@ -41,7 +41,7 @@ pip install jupyterlab-voice-capture-extension
 
 ```bash
 jupyterlab_voice_capture install    # apt packages + /run/voice dir + client.conf + Jupyter config line (does NOT start the daemon)
-jupyterlab_voice_capture start -d   # start the PulseAudio daemon + pipe-source (run after install and each restart)
+jupyterlab_voice_capture start -d   # start the PulseAudio daemon + pipe-source + voicedrain loopback that keeps it reading (run after install and each restart)
 jupyterlab_voice_capture validate   # check every component, print what to fix (--json for machine output)
 jupyterlab_voice_capture stop       # kill the PulseAudio daemon
 ```
